@@ -140,7 +140,7 @@ Command-line arguments override the values in this block.
 | VALUE_FIELD | str | Numeric attribute driving the cartogram, such as population or eligible_voters. Required either here or through --attribute. |
 | WORKING_CRS | str | Projected CRS used for areas and diffusion. When empty, an already projected input CRS is retained; otherwise a local UTM CRS is estimated. |
 | ATTRIBUTE_IS_DENSITY | bool | False for a total quantity; True only when values are already expressed per unit of area. |
-| GRID_SIZE | int | Number of cells along each axis. The total is GRID_SIZE squared: 128 creates 16,384 cells and 256 creates 65,536. |
+| GRID_SIZE | int | Number of cells along each axis of the square computational raster. The matrix always contains GRID_SIZE squared cells, but this does not imply a fixed geographic resolution; cell size on the ground depends on the projected extent, margin, and included auxiliary layers. |
 | CARTOGRAM_ITERATIONS | int | Number of complete passes, with density recomputed from the geometry produced by the previous pass. Start with 1; try 2 or 3 to reduce residual error. |
 | GRID_EXPORT_MODE | str | lines for a lightweight visual mesh, cells for density-bearing polygons, or none to omit the grid. |
 | GRID_CROP_TO_INPUT | bool | When True, hides the external computational margin in the exported grid. The margin remains active in the solver. |
@@ -208,11 +208,29 @@ version is supported and that pip is current.
 
 ## Inputs
 
-Supported input formats:
+Implemented input and output drivers:
 
 - GeoJSON: .geojson or .json;
 - ESRI Shapefile: .shp plus its companion files;
 - GeoPackage: .gpkg.
+
+At present, the included GeoPackage workflow is the only format tested end to
+end with the full cartogram pipeline. GeoJSON and ESRI Shapefile use standard
+GeoPandas/Pyogrio drivers and the corresponding read/write paths are
+implemented, but they have not yet been covered by an end-to-end regression
+test in this project. Treat them as provisional until that validation is
+added.
+
+Every input must have a CRS that GeoPandas can identify. The program currently
+stops when the input CRS is missing; --working-crs selects the projected CRS
+used for the calculation and does not declare an unknown source CRS.
+
+For Shapefile input, keep the .shp, .shx, .dbf, and .prj files together. The
+.prj file is what normally supplies the CRS. A GeoJSON conforming to RFC 7946
+uses WGS 84 longitude and latitude semantics and is normally reported by the
+driver as EPSG:4326 or OGC:CRS84, even though modern GeoJSON does not carry an
+arbitrary CRS definition. Older or non-standard GeoJSON files may still be
+read without an identifiable CRS and will then be rejected.
 
 Select a GeoPackage layer with:
 
@@ -550,10 +568,54 @@ CRS. Any projected CRS recognized by PROJ and GeoPandas can be used, including:
 - an appropriate national projected CRS;
 - a suitable equal-area projection when area interpretation has priority.
 
-EPSG:4326 is supported for input and output because it is common for GeoJSON,
+EPSG:4326 is accepted for input and output because it is common for GeoJSON,
 but it is not used directly for diffusion: degrees are not distance or area
-units. For geographic input, the program estimates a local UTM zone, performs
-the calculation there, and transforms results back to the original CRS.
+units. For geographic input with an identified CRS, the program estimates a
+local UTM zone, performs the calculation there, and transforms results back to
+the original CRS.
+
+### Choosing GRID_SIZE for the study area
+
+GRID_SIZE controls matrix dimensions, not a universal map resolution. With
+the current command-line interface, N means an N by N raster and therefore
+exactly N squared cells:
+
+| GRID_SIZE | Raster dimensions | Computational cells |
+|---:|---:|---:|
+| 128 | 128 × 128 | 16,384 |
+| 256 | 256 × 256 | 65,536 |
+| 512 | 512 × 512 | 262,144 |
+
+Those counts are mathematical properties of the raster and do not depend on
+the country. Their geographic meaning does. The solver first builds a
+projected calculation extent around the selected bounding box, preserves the
+grid aspect ratio, and applies the configured margin. Approximate cell width
+and height are then:
+
+~~~text
+cell_width  = padded_extent_width  / GRID_SIZE
+cell_height = padded_extent_height / GRID_SIZE
+~~~
+
+Consequently, a 256 grid covering all of France has much larger cells than a
+256 grid covering one Swiss canton. It may fail to represent small communes
+adequately even though the number of cells is identical. Conversely, a very
+small study area may not need 256 cells per axis.
+
+There is no universally correct value based only on the country name. Choose
+GRID_SIZE from:
+
+- the projected width and height of the selected extent;
+- the size of the smallest geographic units that matter;
+- the extent added by auxiliary layers;
+- the target area error in the JSON report;
+- available memory and acceptable runtime.
+
+A practical workflow is to start at 128, inspect small units and cg_abserr,
+then compare 256 and, if needed, 512. Retain the smallest grid for which the
+accuracy improvement is worth the additional cost. Comparing report metrics
+is more reliable than assuming that a value validated for Switzerland also
+fits France or another territory.
 
 For data spanning several UTM zones, a large country, or the world, explicitly
 provide an appropriate projected working CRS:
