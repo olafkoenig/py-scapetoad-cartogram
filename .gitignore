@@ -1,0 +1,13 @@
+.DS_Store
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# Generated cartograms and reports; keep the two source GeoPackages.
+data/*_grid_*_iter_*.gpkg
+data/*_report.json
+
