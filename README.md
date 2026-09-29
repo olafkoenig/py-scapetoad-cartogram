@@ -54,6 +54,15 @@ The GeoPackage contains:
 The JSON report contains global accuracy statistics, parameters, coordinate
 reference systems, extents, and geometry validity checks.
 
+## Validation status
+
+The GeoPackage demonstration workflow has been tested end to end. GeoJSON and
+ESRI Shapefile drivers are implemented but have not yet received the same
+end-to-end validation. A finite, prioritized checklist covering formats, CRS
+handling, numerical correctness, topology, a future grid-size inspection
+helper, and a reproducible README illustration is maintained in
+[VALIDATION.md](VALIDATION.md).
+
 ## Origin, credits, and license
 
 This project adapts the computation core of
