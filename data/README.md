@@ -1,13 +1,19 @@
 # Demonstration data
 
-This directory contains the two source GeoPackages used by the documented
-examples:
+This directory contains two GeoPackages derived from official data published
+by the Swiss Federal Statistical Office (FSO):
 
-- `voge_voters.gpkg`: thematic voting-geography layer;
-- `lakes.gpkg`: auxiliary context layer.
+- `voge_voters.gpkg`: voting geographies and results for the Swiss federal
+  vote of 14 June 2026;
+- `lakes.gpkg`: major lakes used as an auxiliary context layer.
 
-They are included as source data for testing the Python cartogram workflow.
-Their inclusion does not transfer or modify the rights attached to the
-underlying data. Users must verify the original producers' licensing and
-attribution requirements before reuse or redistribution.
+Sources:
 
+- [Real-time data on federal voting proposals on voting day](https://opendata.swiss/de/dataset/echtzeitdaten-am-abstimmungstag-zu-eidgenoessischen-abstimmungsvorlagen)
+- [Geodata for federal voting proposals](https://opendata.swiss/de/dataset/geodaten-zu-den-eidgenoessischen-abstimmungsvorlagen)
+
+Publisher: Swiss Federal Statistical Office (FSO). The files are included for
+testing and demonstration. Their inclusion does not transfer or alter any
+rights attached to the source data. Users remain responsible for checking and
+complying with the current terms of use and attribution requirements on the
+source pages before reuse or redistribution.
