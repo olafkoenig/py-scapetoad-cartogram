@@ -40,6 +40,9 @@ CARTOGRAM_ITERATIONS = 1
 GRID_EXPORT_MODE = "lines"  # "lines" (léger), "cells" (détaillé), "none"
 GRID_CROP_TO_INPUT = True   # exclut de l'export la marge de calcul extérieure
 THEMATIC_EXTENT_ONLY = True  # False: union des bbox thématique + auxiliaires
+LEGEND_ENABLED = True
+LEGEND_COUNT = 3  # entre 1 et 3; ignoré si LEGEND_VALUES est renseigné
+LEGEND_VALUES: list[float] = []  # ex. [1000, 10000, 22936]; vide: automatique
 
 import argparse
 import json
@@ -47,6 +50,7 @@ import logging
 import math
 import re
 import sys
+import tempfile
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -587,12 +591,7 @@ def combined_total_bounds(
 
 
 def _driver(path: Path) -> str:
-    return {
-        ".geojson": "GeoJSON",
-        ".json": "GeoJSON",
-        ".shp": "ESRI Shapefile",
-        ".gpkg": "GPKG",
-    }.get(path.suffix.lower(), "")
+    return {".gpkg": "GPKG"}.get(path.suffix.lower(), "")
 
 
 def _write(frame: gpd.GeoDataFrame, path: Path, layer: str) -> None:
@@ -607,6 +606,124 @@ def _write(frame: gpd.GeoDataFrame, path: Path, layer: str) -> None:
         # append duplicate features on a rerun. This requires no Fiona import.
         kwargs["layer"] = layer
     frame.to_file(path, **kwargs)
+
+
+def _write_gpkg_bundle_atomic(
+    layers: Sequence[tuple[str, gpd.GeoDataFrame]], path: Path
+) -> None:
+    """Write a complete GeoPackage without retaining stale layers from an older run."""
+    if not layers:
+        raise ValueError("Le GeoPackage doit contenir au moins une couche.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{path.stem}-", suffix=".gpkg", dir=path.parent, delete=False
+    ) as stream:
+        staging = Path(stream.name)
+    staging.unlink()
+    try:
+        for layer_name, frame in layers:
+            _write(frame, staging, layer_name)
+        staging.replace(path)
+    finally:
+        if staging.exists():
+            staging.unlink()
+
+
+def _nice_125_at_or_below(value: float) -> float:
+    """Return the largest positive 1-2-5 number not greater than value."""
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("La valeur de légende doit être strictement positive et finie.")
+    exponent = math.floor(math.log10(value))
+    scale = 10.0**exponent
+    fraction = value / scale
+    multiplier = 5.0 if fraction >= 5.0 else 2.0 if fraction >= 2.0 else 1.0
+    return multiplier * scale
+
+
+def automatic_legend_values(maximum: float, count: int = 3) -> list[float]:
+    """Choose up to three nested area-legend values, including the exact maximum."""
+    if not math.isfinite(maximum) or maximum <= 0:
+        raise ValueError("Le maximum de légende doit être strictement positif et fini.")
+    if not 1 <= count <= 3:
+        raise ValueError("legend-count doit être compris entre 1 et 3.")
+    values = [float(maximum)]
+    if count >= 2:
+        middle = _nice_125_at_or_below(maximum / 2.0)
+        values.append(middle)
+    if count >= 3:
+        values.append(middle / 10.0)
+    return values
+
+
+def _validate_manual_legend_values(values: Sequence[float]) -> list[float]:
+    parsed = [float(value) for value in values]
+    if not 1 <= len(parsed) <= 3:
+        raise ValueError("legend-values doit contenir entre 1 et 3 valeurs.")
+    if not all(math.isfinite(value) and value > 0 for value in parsed):
+        raise ValueError("Les valeurs manuelles de légende doivent être positives et finies.")
+    if len(set(parsed)) != len(parsed):
+        raise ValueError("Les valeurs manuelles de légende doivent être distinctes.")
+    return sorted(parsed, reverse=True)
+
+
+def build_legend_frame(
+    cartogram: gpd.GeoDataFrame,
+    variable: str,
+    target_masses: np.ndarray,
+    *,
+    count: int = 3,
+    values: Sequence[float] | None = None,
+    gap_ratio: float = 0.25,
+) -> tuple[gpd.GeoDataFrame, dict[str, object]]:
+    """Build nested proportional squares above the cartogram's top-left corner."""
+    if cartogram.empty or cartogram.crs is None:
+        raise ValueError("La légende requiert un cartogramme non vide avec un CRS.")
+    if cartogram.crs.is_geographic:
+        raise ValueError("La légende surfacique requiert un CRS projeté.")
+    if gap_ratio < 0 or not math.isfinite(gap_ratio):
+        raise ValueError("Le ratio de marge de légende doit être positif ou nul.")
+
+    polygon_mask = cartogram.geometry.geom_type.isin(["Polygon", "MultiPolygon"]).to_numpy()
+    masses = np.where(polygon_mask, np.asarray(target_masses, dtype=float), 0.0)
+    total_mass = float(np.sum(masses))
+    total_area = float(np.sum(cartogram.geometry.area.to_numpy(dtype=float)[polygon_mask]))
+    positive_masses = masses[masses > 0]
+    if total_mass <= 0 or total_area <= 0 or not positive_masses.size:
+        raise ValueError("Impossible de calibrer la légende surfacique.")
+
+    legend_values = (
+        _validate_manual_legend_values(values)
+        if values is not None
+        else automatic_legend_values(float(np.max(positive_masses)), count)
+    )
+    area_per_unit = total_area / total_mass
+    side_lengths = [math.sqrt(value * area_per_unit) for value in legend_values]
+    largest_side = max(side_lengths)
+    minx, _miny, _maxx, maxy = map(float, cartogram.total_bounds)
+    gap = gap_ratio * largest_side
+    origin_x, origin_y = minx, maxy + gap
+    geometries = [
+        box(origin_x, origin_y, origin_x + side, origin_y + side)
+        for side in side_lengths
+    ]
+    legend = gpd.GeoDataFrame(
+        {"variable": [variable] * len(legend_values), "value": legend_values},
+        geometry=geometries,
+        crs=cartogram.crs,
+    )
+    metadata: dict[str, object] = {
+        "enabled": True,
+        "layer": "legend",
+        "variable": variable,
+        "values": legend_values,
+        "feature_count": len(legend),
+        "area_per_unit": area_per_unit,
+        "position": "top-left-outside",
+        "shared_origin": [origin_x, origin_y],
+        "gap": gap,
+        "bounds": list(map(float, legend.total_bounds)),
+    }
+    return legend, metadata
 
 
 def add_quality_metrics(
@@ -661,7 +778,7 @@ def add_quality_metrics(
     quality[assessable & (absolute_error > 20) & (absolute_error <= 50)] = "poor"
     quality[assessable & (absolute_error > 50)] = "very_poor"
 
-    # Short names remain usable in an ESRI Shapefile (10-character limit).
+    # Keep the established compact field names for compatibility with existing results.
     result["cg_a_orig"] = original
     result["cg_a_cart"] = final
     result["cg_a_targ"] = target_area
@@ -738,6 +855,11 @@ def _write_report(report: dict[str, object], path: Path) -> None:
 def build_cartogram(
     args: argparse.Namespace,
 ) -> tuple[Path, Path | None, Path, dict[str, object]]:
+    output = Path(args.output)
+    if output.suffix.lower() != ".gpkg":
+        raise ValueError("La sortie canonique doit être un GeoPackage (.gpkg).")
+    if args.grid_output and Path(args.grid_output).suffix.lower() != ".gpkg":
+        raise ValueError("La sortie séparée de la grille doit être un GeoPackage (.gpkg).")
     source, original_crs = read_inputs(args.inputs, args.attribute, args.id_field)
     if args.working_crs:
         working_crs = args.working_crs
@@ -851,6 +973,21 @@ def build_cartogram(
     )
     if temporary_mass_column:
         result = result.drop(columns=[temporary_mass_column])
+    legend_enabled = bool(getattr(args, "legend_enabled", LEGEND_ENABLED))
+    legend_values = getattr(args, "legend_values", None)
+    if not legend_enabled and legend_values:
+        raise ValueError("--legend-values ne peut pas être combiné avec --no-legend.")
+    legend: gpd.GeoDataFrame | None = None
+    if legend_enabled:
+        legend, legend_report = build_legend_frame(
+            result,
+            args.attribute,
+            target_masses,
+            count=int(getattr(args, "legend_count", LEGEND_COUNT)),
+            values=legend_values,
+        )
+    else:
+        legend_report = {"enabled": False}
     # Compose every iteration on the first regular grid. This exposes the full
     # deformation rather than the nearly-regular residual of the final pass.
     export_bounds = grid_reference_bounds if not args.full_grid_extent else None
@@ -875,16 +1012,6 @@ def build_cartogram(
         raise ValueError(f"Mode d'export de grille inconnu: {args.grid_export_mode}")
     if grid is not None:
         grid["iteration"] = args.iterations
-    if not args.keep_working_crs:
-        result = result.to_crs(original_crs)
-        if grid is not None:
-            grid = grid.to_crs(original_crs)
-        auxiliary_layers = {
-            name: auxiliary.to_crs(original_crs)
-            for name, auxiliary in auxiliary_layers.items()
-        }
-
-    output = Path(args.output)
     if grid is None:
         grid_output = None
     elif args.grid_output:
@@ -901,9 +1028,12 @@ def build_cartogram(
     quality_report.update(
         {
             "input_files": list(args.inputs),
+            "input_crs": str(original_crs),
+            "output_crs": str(result.crs),
             "id_field": args.id_field,
             "value_field": args.attribute,
             "attribute_is_density": bool(args.attribute_is_density),
+            "legend": legend_report,
             "grid_size": int(args.grid_size),
             "cartogram_iterations": int(args.iterations),
             "grid_export_mode": args.grid_export_mode,
@@ -940,11 +1070,15 @@ def build_cartogram(
         raise ValueError("Une sortie commune aux deux couches doit être un GeoPackage (.gpkg).")
     if report_output == output or (grid_output is not None and report_output == grid_output):
         raise ValueError("Le rapport JSON doit avoir un chemin distinct des sorties géographiques.")
-    _write(result, output, "cartogram")
-    if grid is not None and grid_output is not None:
-        _write(grid, grid_output, "deformation_grid")
-    for layer_name, auxiliary in auxiliary_layers.items():
-        _write(auxiliary, output, layer_name)
+    output_layers: list[tuple[str, gpd.GeoDataFrame]] = [("cartogram", result)]
+    if legend is not None:
+        output_layers.append(("legend", legend))
+    if grid is not None and grid_output == output:
+        output_layers.append(("deformation_grid", grid))
+    output_layers.extend(auxiliary_layers.items())
+    _write_gpkg_bundle_atomic(output_layers, output)
+    if grid is not None and grid_output is not None and grid_output != output:
+        _write_gpkg_bundle_atomic([("deformation_grid", grid)], grid_output)
     _write_report(quality_report, report_output)
     return output, grid_output, report_output, quality_report
 
@@ -963,9 +1097,28 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("-a", "--attribute", help="Variable à égaliser par la surface")
     parser.add_argument("--id-field", help="Champ identifiant à valider et conserver")
-    parser.add_argument("-o", "--output", help="Sortie; sinon nom GeoPackage généré automatiquement")
-    parser.add_argument("--grid-output", help="Sortie de la grille; par défaut *_grid ou même GPKG")
+    parser.add_argument("-o", "--output", help="GeoPackage canonique; sinon nom généré automatiquement")
+    parser.add_argument("--grid-output", help="GeoPackage séparé pour la grille; par défaut même GPKG")
     parser.add_argument("--report-output", help="Rapport JSON de contrôle des surfaces")
+    parser.add_argument(
+        "--no-legend",
+        action="store_false",
+        dest="legend_enabled",
+        default=LEGEND_ENABLED,
+        help="Ne pas créer la couche surfacique 'legend'",
+    )
+    parser.add_argument(
+        "--legend-count",
+        type=int,
+        default=LEGEND_COUNT,
+        help="Nombre automatique de carrés de légende (1 à 3)",
+    )
+    parser.add_argument(
+        "--legend-values",
+        type=float,
+        nargs="+",
+        help="Valeurs manuelles des carrés (1 à 3); remplace le calcul automatique",
+    )
     parser.add_argument(
         "--grid-export-mode",
         choices=["lines", "cells", "none"],
@@ -999,7 +1152,11 @@ def _parser() -> argparse.ArgumentParser:
         help="L'attribut est déjà une densité",
     )
     parser.add_argument("--working-crs", help="CRS projeté de calcul, p. ex. EPSG:2056")
-    parser.add_argument("--keep-working-crs", action="store_true", help="Ne pas reprojeter vers le CRS d'entrée")
+    parser.add_argument(
+        "--keep-working-crs",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--margin", type=float, default=1.5, help="Facteur d'emprise autour des données")
     parser.add_argument("--density-floor", type=float, default=1e-3, help="Plancher relatif de densité")
     parser.add_argument("--blur", type=float, default=0.0, help="Lissage spectral initial en cellules")
@@ -1022,6 +1179,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args.grid_output = args.grid_output or GRID_OUTPUT_FILE or None
     args.report_output = args.report_output or REPORT_OUTPUT_FILE or None
     args.working_crs = args.working_crs or WORKING_CRS or None
+    if args.legend_values is None and LEGEND_VALUES:
+        args.legend_values = LEGEND_VALUES
     if not args.inputs:
         parser.error("indiquez un input dans INPUT_FILES ou sur la ligne de commande")
     if not args.attribute:
@@ -1047,6 +1206,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Grille déformée: non exportée")
     else:
         print(f"Grille déformée: {grid_output}")
+    if report["legend"]["enabled"]:
+        print(f"Légende surfacique: {output}::legend")
+    else:
+        print("Légende surfacique: non exportée")
     print(f"Rapport de contrôle: {report_output}")
     size_error = report["size_error"]
     relative_error = report["relative_area_error_percent"]

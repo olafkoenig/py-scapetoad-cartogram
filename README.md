@@ -1,113 +1,129 @@
 # py-scapetoad
 
-py-scapetoad creates contiguous diffusion cartograms from vector geographic
-data. It is a standalone Python adaptation of the mathematical core of
-ScapeToad, without its Swing user interface, JTS/JUMP dependencies, or Java
-Shapefile parser.
+`pyscapetoad.py` produit des cartogrammes contigus par diffusion à partir d'un
+fichier vectoriel. Il s'agit d'une retranscription autonome du noyau
+mathématique de ScapeToad, sans interface Swing, JTS, JUMP ni lecteur de
+Shapefile Java.
 
-## Quick start
+## Origine, crédits et licence
 
-The recommended input is one geographic file containing:
+Ce projet est une adaptation Python du noyau de calcul de
+[ScapeToad](https://github.com/christiankaiser/ScapeToad), l'application Java
+originale de cartogrammes. Les contributeurs du dépôt original incluent :
 
-- one Polygon or MultiPolygon geometry per geographic unit;
-- a stable identifier, such as commune_id;
-- a positive extensive variable, such as population or eligible_voters.
-
-Create and activate a virtual environment:
-
-~~~bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-~~~
-
-Run the included voting example:
-
-~~~bash
-python pyscapetoad.py \
-  data/voge_voters.gpkg::voge_voters \
-  --aux-layer data/lakes.gpkg::lakes \
-  --id-field vogeId \
-  --attribute eligible_voters \
-  --working-crs EPSG:2056 \
-  --grid-size 256 \
-  --iterations 3 \
-  --grid-export-mode lines \
-  --verbose
-~~~
-
-Because no output path is supplied, this creates:
-
-~~~text
-data/voge_voters_eligible_voters_grid_256_iter_3.gpkg
-data/voge_voters_eligible_voters_grid_256_iter_3_report.json
-~~~
-
-The GeoPackage contains:
-
-- cartogram: transformed thematic polygons with all original attributes and
-  per-feature accuracy diagnostics;
-- deformation_grid: the regular source grid after the cumulative deformation;
-- aux_lakes: lakes transformed by exactly the same displacement fields.
-
-The JSON report contains global accuracy statistics, parameters, coordinate
-reference systems, extents, and geometry validity checks.
-
-## Validation status
-
-The GeoPackage demonstration workflow has been tested end to end. GeoJSON and
-ESRI Shapefile drivers are implemented but have not yet received the same
-end-to-end validation. A finite, prioritized checklist covering formats, CRS
-handling, numerical correctness, topology, a future grid-size inspection
-helper, and a reproducible README illustration is maintained in
-[VALIDATION.md](VALIDATION.md).
-
-## Origin, credits, and license
-
-This project adapts the computation core of
-[ScapeToad](https://github.com/christiankaiser/ScapeToad), the original Java
-cartogram application. Contributors to the original repository include:
-
-- [Christian Kaiser](https://github.com/christiankaiser);
+- [Christian Kaiser](https://github.com/christiankaiser) ;
 - [Jason Davies](https://github.com/jasondavies).
 
-This repository reimplements and adapts the Gastner–Newman diffusion logic
-using NumPy, SciPy, GeoPandas, and Shapely. It is not the original Java
-application and is not presented as an official ScapeToad release. The Java
-classes studied and the implementation differences are documented below.
+Le présent projet retranscrit et adapte la logique de diffusion
+Gastner–Newman avec NumPy, SciPy, GeoPandas et Shapely. Il ne s'agit pas de
+l'application Java originale et il n'est pas présenté comme une version
+officielle de ScapeToad. Les correspondances avec les classes Java et les
+différences d'implémentation sont documentées plus bas.
 
-ScapeToad is distributed under GNU GPL v2. This adaptation is therefore
-distributed under the GNU General Public License v2.0 only. See
-[LICENSE.txt](LICENSE.txt). Attribution to the original work and its link must
-be retained in redistributed versions.
+ScapeToad est distribué sous GNU GPL v2. Cette adaptation est par conséquent
+distribuée sous **GNU General Public License v2.0 only**; le texte complet se
+trouve dans `LICENSE.txt`. Les mentions de l'œuvre d'origine et ce lien doivent
+être conservés lors d'une redistribution.
 
-## Demonstration data and attribution
+## Quick hands-on
 
-The two GeoPackages in [data/](data/) are derived from official data published
-by the Swiss Federal Statistical Office (FSO):
+Le cas recommandé est **un seul fichier géographique** contenant au minimum :
 
-- voge_voters.gpkg contains voting geographies and voting data for the Swiss
-  federal vote of 14 June 2026;
-- lakes.gpkg contains major lakes used as geographic context.
+- une géométrie polygonale par territoire ;
+- un identifiant stable, par exemple `commune_id` ;
+- une variable extensive positive, par exemple `population`.
 
-Official sources:
+Exemple en ligne de commande :
 
-- [Real-time data on federal voting proposals on voting day](https://opendata.swiss/de/dataset/echtzeitdaten-am-abstimmungstag-zu-eidgenoessischen-abstimmungsvorlagen)
-- [Geodata for federal voting proposals](https://opendata.swiss/de/dataset/geodaten-zu-den-eidgenoessischen-abstimmungsvorlagen)
+```bash
+python pyscapetoad.py data/communes.gpkg::communes \
+  --id-field commune_id \
+  --attribute population \
+  --output output/cartogramme.gpkg \
+  --grid-size 128 \
+  --iterations 1 \
+  --verbose
+```
 
-Publisher: Swiss Federal Statistical Office (FSO). The files are included for
-testing and demonstration. Their inclusion does not transfer or alter any
-rights attached to the source data. Users remain responsible for checking and
-complying with the current terms of use and attribution requirements on the
-source pages before reuse or redistribution. See [data/README.md](data/README.md).
+Le GeoPackage obtenu contient :
 
-## Configuration at the top of the script
+- `cartogram` : les territoires déformés, avec les attributs et identifiants
+  du fichier source ;
+- `legend` : un à trois carrés surfaciques proportionnels à la variable, dans
+  le même CRS projeté ;
+- `deformation_grid` : le maillage initial après composition cumulative de
+  toutes les itérations, exporté sous forme de lignes par défaut.
 
-All common settings can be edited near the beginning of
-[pyscapetoad.py](pyscapetoad.py):
+Il est aussi possible de renseigner les chemins et champs au début de
+[`pyscapetoad.py`](pyscapetoad.py) :
 
-~~~python
+```python
+INPUT_FILES = ["data/communes.gpkg::communes"]
+AUXILIARY_FILES = []
+OUTPUT_FILE = ""
+GRID_OUTPUT_FILE = ""
+REPORT_OUTPUT_FILE = ""
+ID_FIELD = "commune_id"
+VALUE_FIELD = "population"
+WORKING_CRS = "EPSG:2056"
+ATTRIBUTE_IS_DENSITY = False
+GRID_SIZE = 128
+CARTOGRAM_ITERATIONS = 1
+GRID_EXPORT_MODE = "lines"
+GRID_CROP_TO_INPUT = True
+THEMATIC_EXTENT_ONLY = True
+LEGEND_ENABLED = True
+LEGEND_COUNT = 3
+LEGEND_VALUES = []
+```
+
+Puis lancer simplement :
+
+```bash
+python pyscapetoad.py
+```
+
+Les arguments CLI ont priorité sur ce bloc de configuration.
+
+### Paramètres du bloc de configuration
+
+Le bloc situé au début de `pyscapetoad.py` permet d'exécuter le programme sans
+aucun argument. Les chaînes vides demandent au script d'appliquer le
+comportement automatique décrit ci-dessous.
+
+| Paramètre Python | Type | Description |
+|---|---|---|
+| `INPUT_FILES` | `list[str]` | Un ou plusieurs fichiers d'entrée. Pour un GeoPackage, ajouter `::nom_couche`. Un seul fichier contenant géométrie, identifiant et variable est recommandé. |
+| `AUXILIARY_FILES` | `list[str]` | Couches de contexte à déformer avec le même champ sans contribuer au calcul, par exemple lacs ou frontières. |
+| `OUTPUT_FILE` | `str` | GeoPackage canonique. Si vide, un nom reproductible est généré avec la source, la variable, la grille et les itérations. |
+| `GRID_OUTPUT_FILE` | `str` | GeoPackage séparé pour la grille déformée. Si vide, une grille demandée est ajoutée au GeoPackage principal. |
+| `REPORT_OUTPUT_FILE` | `str` | Rapport JSON des erreurs surfaciques. Si vide, le nom `<OUTPUT_FILE>_report.json` est utilisé. |
+| `ID_FIELD` | `str` | Champ identifiant. Sa présence, son unicité et l'absence de valeurs nulles sont contrôlées. Si vide, le FID natif est conservé dans `src_id`. |
+| `VALUE_FIELD` | `str` | Champ numérique qui pilote le cartogramme, par exemple `population` ou `eligible_voters`. Il est obligatoire. |
+| `WORKING_CRS` | `str` | CRS projeté utilisé pour les surfaces et la diffusion. Si vide, le CRS projeté de l'entrée est conservé; pour une entrée géographique, une zone UTM est estimée. |
+| `ATTRIBUTE_IS_DENSITY` | `bool` | `False` si la variable est une quantité totale; `True` si elle contient déjà une densité par unité de surface. |
+| `GRID_SIZE` | `int` | Nombre de cellules sur chaque axe. Le nombre total est `GRID_SIZE²`; 128 produit 16 384 cellules et 256 en produit 65 536. |
+| `CARTOGRAM_ITERATIONS` | `int` | Nombre de passes complètes avec recalcul de la densité sur la géométrie obtenue. Commencer avec 1; utiliser 2 ou 3 pour corriger les résidus. |
+| `GRID_EXPORT_MODE` | `str` | `"lines"` pour un maillage visuel léger, `"cells"` pour les cellules avec leur densité, ou `"none"` pour ne pas exporter de grille. |
+| `GRID_CROP_TO_INPUT` | `bool` | Si `True`, masque dans l'export la marge extérieure nécessaire au calcul. La marge reste bien utilisée par l'algorithme. |
+| `THEMATIC_EXTENT_ONLY` | `bool` | `True` utilise seulement la bbox thématique; `False` utilise l'union des bbox thématique et auxiliaires. |
+| `LEGEND_ENABLED` | `bool` | Crée la couche polygonale `legend` dans le GeoPackage. |
+| `LEGEND_COUNT` | `int` | Nombre automatique de carrés, entre 1 et 3; ignoré si des valeurs manuelles sont données. |
+| `LEGEND_VALUES` | `list[float]` | Valeurs manuelles positives et distinctes, au maximum trois; une liste vide active le calcul automatique. |
+
+`OUTPUT_FILE`, `GRID_OUTPUT_FILE` et `REPORT_OUTPUT_FILE` doivent désigner des
+chemins distincts, sauf la grille et le cartogramme qui peuvent partager un
+GeoPackage. Une nouvelle exécution remplace atomiquement le GeoPackage complet,
+ce qui évite de conserver une ancienne couche `legend` ou
+`deformation_grid` : choisir un nouveau `OUTPUT_FILE` pour conserver un
+résultat antérieur.
+
+### Configuration du jeu de test `voge_voters`
+
+Le réglage validé pour les 2 105 territoires et le champ `eligible_voters`
+est :
+
+```python
 INPUT_FILES = ["data/voge_voters.gpkg::voge_voters"]
 AUXILIARY_FILES = ["data/lakes.gpkg::lakes"]
 
@@ -126,641 +142,678 @@ CARTOGRAM_ITERATIONS = 3
 GRID_EXPORT_MODE = "lines"
 GRID_CROP_TO_INPUT = True
 THEMATIC_EXTENT_ONLY = True
-~~~
+LEGEND_ENABLED = True
+LEGEND_COUNT = 3
+LEGEND_VALUES = []
+```
 
-Then run:
+Le champ `id` de ce jeu de test est vide; `vogeId` est complet et unique. Le
+nom calculé automatiquement est :
 
-~~~bash
+```text
+data/voge_voters_eligible_voters_grid_256_iter_3.gpkg
+```
+
+Lancer ensuite depuis la racine du projet :
+
+```bash
 python pyscapetoad.py
-~~~
+```
 
-Command-line arguments override the values in this block.
+Le GeoPackage contient les couches `cartogram`, `legend` et, puisque le mode
+`lines` est demandé ici, `deformation_grid`; le rapport est créé à côté sous le nom
+`voge_voters_eligible_voters_grid_256_iter_3_report.json`.
 
-### Configuration parameters
+## Dépendances
 
-| Python setting | Type | Meaning |
-|---|---|---|
-| INPUT_FILES | list[str] | One or more input datasets. Append ::layer_name for a GeoPackage layer. One file containing geometry, identifier, and value is recommended. |
-| AUXILIARY_FILES | list[str] | Context layers transformed with the same field but excluded from density calculations, for example lakes or borders. |
-| OUTPUT_FILE | str | Main geographic output. When empty, a reproducible GeoPackage name is generated from the source, variable, grid size, and iteration count. |
-| GRID_OUTPUT_FILE | str | Deformed-grid output. When empty and the main output is a GeoPackage, the grid is written into that GeoPackage. Otherwise a separate _grid file is created. |
-| REPORT_OUTPUT_FILE | str | JSON accuracy report. When empty, the name is derived from the main output with a _report.json suffix. |
-| ID_FIELD | str | Identifier field. Presence, uniqueness, and null values are checked. When empty, the native feature identifier is retained in src_id. |
-| VALUE_FIELD | str | Numeric attribute driving the cartogram, such as population or eligible_voters. Required either here or through --attribute. |
-| WORKING_CRS | str | Projected CRS used for areas and diffusion. When empty, an already projected input CRS is retained; otherwise a local UTM CRS is estimated. |
-| ATTRIBUTE_IS_DENSITY | bool | False for a total quantity; True only when values are already expressed per unit of area. |
-| GRID_SIZE | int | Number of cells along each axis of the square computational raster. The matrix always contains GRID_SIZE squared cells, but this does not imply a fixed geographic resolution; cell size on the ground depends on the projected extent, margin, and included auxiliary layers. |
-| CARTOGRAM_ITERATIONS | int | Number of complete passes, with density recomputed from the geometry produced by the previous pass. Start with 1; try 2 or 3 to reduce residual error. |
-| GRID_EXPORT_MODE | str | lines for a lightweight visual mesh, cells for density-bearing polygons, or none to omit the grid. |
-| GRID_CROP_TO_INPUT | bool | When True, hides the external computational margin in the exported grid. The margin remains active in the solver. |
-| THEMATIC_EXTENT_ONLY | bool | When True, derives the diffusion extent from the thematic layer only. When False, uses the union of thematic and auxiliary extents. |
+Le programme vise Python 3.10 ou plus récent et utilise :
 
-OUTPUT_FILE, GRID_OUTPUT_FILE, and REPORT_OUTPUT_FILE must normally be
-different paths, although the cartogram and grid may share a GeoPackage.
-Running the program again may replace the cartogram and deformation_grid
-layers in that file. Choose another output path to preserve an earlier result.
+- `geopandas` pour lire, fusionner, reprojeter et écrire les couches ;
+- `shapely >= 2` pour les intersections, la densification et la transformation
+  des géométries ;
+- `numpy` pour les grilles et le calcul vectorisé ;
+- `scipy` pour `scipy.fft.dctn` et `scipy.fft.idctn` ;
+- `pandas`, `pyproj` et `pyogrio` pour les tables, CRS et pilotes GDAL.
 
-## Dependencies and installation
+### Configuration recommandée
 
-The project targets Python 3.10 or newer. Python 3.11 is recommended and has
-been used for testing.
+- Python 3.10 ou plus récent; Python 3.11 est recommandé et testé ;
+- un environnement virtuel dédié ;
+- `pip` récent pour obtenir les roues binaires GeoPandas/Pyogrio ;
+- environ 1 Go de mémoire libre pour les grilles usuelles; davantage pour
+  512×512, plusieurs itérations et des géométries très détaillées.
 
-Main dependencies:
+macOS et Linux :
 
-- geopandas: vector data reading, reprojection, merging, and writing;
-- shapely 2 or newer: intersections, densification, and geometry transforms;
-- numpy: raster grids and vectorized numerical operations;
-- scipy: scipy.fft.dctn and scipy.fft.idctn;
-- pandas, pyproj, and pyogrio: tables, CRS handling, and GDAL-backed drivers.
-
-All application code is contained in the single pyscapetoad.py file. The
-scientific libraries and format drivers remain external dependencies listed in
-[requirements.txt](requirements.txt). Pyogrio provides GDAL access to
-GeoPackage, Shapefile, and GeoJSON without requiring Fiona.
-
-Recommended setup:
-
-- Python 3.10 or newer;
-- a dedicated virtual environment;
-- a recent pip version so binary GeoPandas and Pyogrio wheels can be used;
-- approximately 1 GB of free memory for ordinary grids, with more needed for
-  512 by 512 grids, multiple iterations, or very detailed geometries.
-
-macOS and Linux:
-
-~~~bash
-python3 -m venv .venv
+```bash
+python -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-~~~
+```
 
-Windows PowerShell:
+Windows PowerShell :
 
-~~~powershell
+```powershell
 py -3.11 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-~~~
+```
 
-Verify the environment:
+Vérification :
 
-~~~bash
+```bash
 python -c "import geopandas, shapely, numpy, scipy, pyogrio; print('OK')"
 python pyscapetoad.py --help
-~~~
+```
 
-NumPy and SciPy must use mutually compatible versions. If pip attempts to
-compile GDAL instead of downloading a wheel, first check that the Python
-version is supported and that pip is current.
+L'export Web secondaire utilise l'outil de référence `geo2topo`, fourni par
+le paquet npm `topojson-server` :
+
+```bash
+npm install --global topojson-server
+geo2topo --version
+```
+
+NumPy et SciPy doivent appartenir à des versions mutuellement compatibles.
+Dans l'environnement de développement actuel, SciPy 1.15.3 avertit que NumPy
+2.5.3 est trop récent pour sa plage officiellement prise en charge, même si les
+tests fonctionnels passent.
+
+Le moteur d'anamorphose est contenu dans `pyscapetoad.py`; la conversion Web
+secondaire est isolée dans `export_topojson.py`. Les bibliothèques scientifiques
+et les pilotes de formats restent des dépendances externes, déclarées dans
+[`requirements.txt`](requirements.txt). Pyogrio fournit l'accès GDAL aux
+GeoPackage, Shapefile et GeoJSON sans nécessiter Fiona. Si `pip` tente de
+compiler GDAL au lieu de télécharger une roue, vérifier que la version de
+Python est prise en charge et que `pip` est à jour.
 
 ## Inputs
 
-Implemented input and output drivers:
+Formats acceptés :
 
-- GeoJSON: .geojson or .json;
-- ESRI Shapefile: .shp plus its companion files;
-- GeoPackage: .gpkg.
+- GeoJSON : `.geojson` ou `.json` ;
+- ESRI Shapefile : `.shp` et ses fichiers compagnons ;
+- GeoPackage : `.gpkg`.
 
-At present, the included GeoPackage workflow is the only format tested end to
-end with the full cartogram pipeline. GeoJSON and ESRI Shapefile use standard
-GeoPandas/Pyogrio drivers and the corresponding read/write paths are
-implemented, but they have not yet been covered by an end-to-end regression
-test in this project. Treat them as provisional until that validation is
-added.
+Pour sélectionner une couche GeoPackage :
 
-Every input must have a CRS that GeoPandas can identify. The program currently
-stops when the input CRS is missing; --working-crs selects the projected CRS
-used for the calculation and does not declare an unknown source CRS.
+```text
+donnees.gpkg::nom_de_la_couche
+```
 
-For Shapefile input, keep the .shp, .shx, .dbf, and .prj files together. The
-.prj file is what normally supplies the CRS. A GeoJSON conforming to RFC 7946
-uses WGS 84 longitude and latitude semantics and is normally reported by the
-driver as EPSG:4326 or OGC:CRS84, even though modern GeoJSON does not carry an
-arbitrary CRS definition. Older or non-standard GeoJSON files may still be
-read without an identifiable CRS and will then be rejected.
+Un fichier unique avec identifiant et variable de calcul est conseillé. Le
+script accepte néanmoins plusieurs fichiers et les fusionne après reprojection
+vers le CRS du premier. Tous doivent posséder le champ donné à `--attribute`
+et, s'il est indiqué, celui donné à `--id-field`.
 
-Select a GeoPackage layer with:
+`--id-field` valide la présence du champ, l'absence de valeurs nulles et son
+unicité dans chaque fichier; celui-ci est conservé tel quel. Le programme
+conserve également toutes les autres colonnes et ajoute :
 
-~~~text
-dataset.gpkg::layer_name
-~~~
+- `src_id` : identifiant natif/FID lu par GeoPandas ;
+- `src_file` : chemin du fichier source.
 
-A single file containing the identifier and calculation variable is
-recommended. Multiple thematic input files are supported and are merged after
-reprojection to the CRS of the first file. Every file must contain the field
-passed to --attribute and, when supplied, the field passed to --id-field.
+Si ces noms existent déjà, des préfixes `_` sont ajoutés afin de ne jamais
+écraser les colonnes utilisateur.
 
-The identifier check validates field presence, non-null values, and uniqueness
-within every source. All source columns are retained. The program also adds:
+Seuls les `Polygon` et `MultiPolygon` contribuent à la densité. Les points et
+lignes éventuellement présents sont déformés et exportés, mais ne contribuent
+pas au calcul.
 
-- src_id: the native feature identifier read by GeoPandas;
-- src_file: the source file path.
+### Quantité ou densité
 
-If either name already exists, underscore prefixes are added rather than
-overwriting user data.
+Par défaut, `--attribute population` signifie une **quantité extensive**. Pour
+chaque entité :
 
-Only Polygon and MultiPolygon features contribute to density. Points and lines
-may still be transformed and exported, but they do not affect the calculation.
+```text
+densité = population / aire courante
+```
 
-### Quantity versus density
+Si le champ contient déjà une valeur intensive, par exemple des habitants par
+km², ajouter `--attribute-is-density`. Le programme la convertit en masse
+interne (`densité × aire initiale`) afin que plusieurs itérations conservent la
+même quantité par territoire.
 
-By default, --attribute population describes an extensive quantity. For each
-feature:
+Un pourcentage ou ratio n'est généralement **pas** une densité surfacique. Les
+trois choix donnent des cartes différentes :
 
-~~~text
-density = population / current_area
-~~~
-
-If the attribute is already an intensive density, such as inhabitants per
-square kilometre, use --attribute-is-density. The program converts it to an
-internal mass by multiplying density by initial area. This ensures that
-multiple iterations preserve the same quantity for each territory.
-
-A percentage or ratio is usually not a spatial density:
-
-| Intended result | Variable | ATTRIBUTE_IS_DENSITY |
+| Objectif | Variable | `ATTRIBUTE_IS_DENSITY` |
 |---|---|---:|
-| Area proportional to eligible voters | eligible_voters | False |
-| Area proportional to the number of yes votes | yes_votes | False |
-| Equal base weight per municipality, modulated by its yes rate | yes_percent | False |
-| Mass equal to yes_percent multiplied by original geographic area | yes_percent | True |
+| Surface proportionnelle au nombre d'électeurs | `eligible_voters` | `False` |
+| Surface proportionnelle au nombre de votes « oui » | `yes_votes` | `False` |
+| Chaque commune reçoit un poids égal, modulé seulement par son taux de oui | `yes_percent` | `False` |
+| Masse égale à `yes_percent × surface géographique initiale` | `yes_percent` | `True` |
 
-The last option is mathematically valid but is rarely appropriate for voting
-data. Two municipalities with the same percentage receive different masses
-only because their land areas differ. Use it only if yes_percent is genuinely
-intended as a value per unit of area. For an electoral-weight map of yes
-votes, yes_votes with ATTRIBUTE_IS_DENSITY set to False is recommended.
+La dernière option est mathématiquement valide, mais rarement pertinente pour
+une votation : deux communes ayant le même taux obtiennent des masses
+différentes uniquement parce que leurs superficies terrestres diffèrent. Elle
+convient seulement si `yes_percent` est réellement interprété comme une
+densité par unité de surface. Pour une carte du poids électoral du « oui »,
+`yes_votes` est le choix recommandé.
 
-Values must be numeric, finite, non-negative, and at least one value must be
-strictly positive.
+Les valeurs doivent être numériques, finies, positives ou nulles, avec au
+moins une valeur strictement positive.
 
-### Auxiliary layers and topology
+### Couches auxiliaires et topologie
 
-AUXILIARY_FILES or the repeatable --aux-layer option adds context layers that
-do not contribute to density. They are densified and transformed through
-exactly the same sequence of displacement fields as the thematic layer.
+`AUXILIARY_FILES` ou l'option répétable `--aux-layer` ajoute des couches de
+contexte qui ne contribuent pas à la densité. Elles sont densifiées et passent
+par exactement les mêmes transformations successives que la couche maître.
 
-By default, THEMATIC_EXTENT_ONLY is True. The diffusion extent is calculated
-from the thematic bounding box and then expanded by the computational margin.
-Auxiliary geometries within that expanded domain are transformed. Parts truly
-outside it are left in their original position instead of being clamped to the
-boundary.
+Par défaut, `THEMATIC_EXTENT_ONLY = True` calcule l'emprise de diffusion depuis
+la seule bbox thématique, puis ajoute la marge. Les parties auxiliaires encore
+comprises dans cette emprise avec marge sont déformées; celles qui restent
+réellement en dehors sont conservées à leur position plutôt que rabattues sur
+le bord.
 
-When THEMATIC_EXTENT_ONLY is False, every iteration uses the union of the
-thematic and auxiliary bounding boxes before adding the margin. All auxiliary
-layers are then inside the diffusion domain. In the demonstration data, this
-explicit union includes the extensions of Bodensee and Lago Maggiore.
+Avec `THEMATIC_EXTENT_ONLY = False`, l'emprise est recalculée à chaque
+itération sur l'union des bounding boxes thématique et auxiliaires, avant
+d'ajouter la marge. Toutes les couches auxiliaires se trouvent alors dans le
+domaine diffusé. Dans le jeu de test, l'union explicite inclut notamment les
+extensions de `Bodensee` et `Lago Maggiore`.
 
-Command-line equivalent:
+Équivalent CLI :
 
-~~~bash
+```bash
 --include-auxiliary-extent
-~~~
+```
 
-Example:
+Exemple avec les lacs :
 
-~~~bash
+```bash
 --aux-layer data/lakes.gpkg::lakes
-~~~
+```
 
-The output GeoPackage layer is named aux_lakes. Its attributes and src_id are
-retained.
+Dans le GeoPackage de sortie, la couche s'appelle `aux_lakes`. Ses attributs et
+son FID (`src_id`) sont conservés.
 
-The transformation is a continuous field shared by all layers. Initially
-identical coordinates therefore remain identical, normally preserving shared
-edges and visual coherence. This corresponds to ScapeToad's simultaneously
-transformed layers. It is not a formal GIS topology engine: poorly aligned
-sources, boundaries that are only nearly coincident, or extreme deformation
-can still create discrepancies. The report records valid and empty geometry
-counts for every auxiliary layer.
+La transformation est un champ continu et identique pour toutes les couches :
+des coordonnées initialement identiques restent donc identiques, ce qui
+préserve normalement les contacts et la cohérence visuelle. Ce mécanisme est
+l'équivalent des « simultaneously transformed layers » de ScapeToad. Il ne
+constitue toutefois pas un moteur topologique SIG formel : des sources déjà
+mal ajustées, des frontières presque mais pas exactement communes, ou des
+déformations extrêmes peuvent encore produire des écarts. Le rapport JSON
+indique pour chaque couche auxiliaire le nombre de géométries valides et vides.
 
-Avoid context layers whose extent is far larger than the thematic region. At
-a fixed GRID_SIZE, expanding the bounding box increases the ground size of
-each cell, reduces effective resolution over the area of interest, increases
-the mean-density background, and can weaken the deformation. Clip context to
-a reasonable neighbourhood or increase GRID_SIZE while monitoring memory and
-runtime.
-
-The JSON report exposes:
-
-- initial_extents.thematic_bounds;
-- auxiliary_bounds;
-- combined_bounds;
-- selected_bounds;
-- strategy;
-- diffusion_bounds_with_margin.
+Éviter les couches auxiliaires dont l'emprise est beaucoup plus grande que la
+zone thématique. À `GRID_SIZE` constant, agrandir fortement la bbox augmente la
+taille géographique de chaque cellule, réduit la résolution effective sur la
+zone utile, accroît le fond à densité moyenne et peut atténuer la déformation.
+Il vaut mieux découper une couche contextuelle à une zone raisonnablement
+proche, ou augmenter `GRID_SIZE` en surveillant mémoire et temps de calcul. Le
+rapport JSON expose `initial_extents.thematic_bounds`, `auxiliary_bounds`,
+`combined_bounds`, `selected_bounds`, `strategy` et
+`diffusion_bounds_with_margin` pour contrôler ce point.
 
 ## Outputs
 
-The same format families are available for output. GeoPackage is recommended
-because it preserves modern field names and can contain multiple layers.
+La sortie géographique canonique est exclusivement un GeoPackage dans le CRS
+projeté de calcul. GeoJSON et Shapefile restent acceptés en entrée, mais ne
+font plus partie des formats de sortie officiels. Cette séparation fournit une
+base stable aux futurs exporteurs Web sans multiplier les comportements à
+tester dans le moteur d'anamorphose.
 
-### Automatic naming
+### Nommage automatique
 
-If OUTPUT_FILE and --output are omitted, the program writes a GeoPackage next
-to the first input using this snake_case convention:
+Si `OUTPUT_FILE` et `--output` sont omis, le script crée un GeoPackage à côté
+du premier input selon la convention snake_case :
 
-~~~text
-<source_file>_<variable>_grid_<size>_iter_<iterations>.gpkg
-~~~
+```text
+<fichier_source>_<variable>_grid_<taille>_iter_<iterations>.gpkg
+```
 
-Examples:
+Exemples :
 
-~~~text
+```text
 communes_population_grid_128_iter_1.gpkg
 voge_voters_eligible_voters_grid_256_iter_3.gpkg
-~~~
+```
 
-Spaces, accents, and punctuation are normalized to create a portable name.
-For multiple thematic inputs, _merged is appended to the first filename.
-An explicit OUTPUT_FILE or --output always takes priority.
+Les espaces, accents et signes sont normalisés pour produire un nom portable.
+Pour plusieurs inputs, `_merged` est ajouté après le nom du premier fichier.
+Un `OUTPUT_FILE` ou `--output` explicite conserve toujours la priorité.
 
-### GeoPackage
+### GeoPackage canonique
 
-~~~bash
+```bash
 python pyscapetoad.py input.gpkg::zones -a population -o result.gpkg
-~~~
+```
 
-The cartogram and deformation grid are both written to result.gpkg.
+Les couches `cartogram`, `legend` et `deformation_grid` sont écrites dans
+`result.gpkg`. La grille peut être supprimée avec `--grid-export-mode none`.
 
-### GeoJSON and Shapefile
+### Légende surfacique
 
-~~~bash
-python pyscapetoad.py input.geojson -a population -o result.geojson
-~~~
+La couche polygonale `legend` utilise le même CRS projeté et le même facteur
+surface/valeur que le cartogramme. Ses carrés partagent une origine sud-ouest,
+sont superposés et placés par défaut au-dessus du coin supérieur gauche de la
+bbox finale. Elle ne participe jamais au calcul de diffusion.
 
-This creates result.geojson, result_grid.geojson, and result_report.json.
-Use --grid-output or --report-output to choose different paths.
+Par défaut, trois valeurs sont produites : le maximum réel, une valeur ronde
+de la série 1–2–5 inférieure ou égale à sa moitié, puis un dixième de cette
+valeur ronde. Exemple : `22 936`, `10 000`, `1 000`.
 
-Shapefile has its usual restrictions, including short field names and one
-layer per file. GeoPackage is preferable when retaining the complete schema
-matters.
+```bash
+--legend-count 2
+--legend-values 1000 10000 22936
+--no-legend
+```
 
-### Visual grid and computational margin
+Une liste manuelle remplace entièrement le calcul automatique. La couche ne
+contient que les champs `variable` et `value`; textes, guides et styles
+appartiennent aux futurs pipelines de rendu.
 
-A margin factor of 1.5 around the data supports the diffusion boundary
-conditions. Removing it from the calculation can push or flatten territories
-near the edge. The margin need not be displayed.
+### Export Web TopoJSON + manifeste
 
-The default export settings are:
+[`export_topojson.py`](export_topojson.py) est une pipeline secondaire : elle
+ne recalcule pas l'anamorphose et consomme le GeoPackage canonique avec son
+rapport JSON.
 
-~~~python
+```bash
+python export_topojson.py result.gpkg
+```
+
+Elle produit :
+
+```text
+result.topojson
+result_manifest.json
+```
+
+Le TopoJSON conserve les coordonnées cartésiennes projetées et contient deux
+objets nommés :
+
+- `cartogram`, avec seulement l'identifiant stable et la variable quantitative
+  dans `properties`; l'identifiant est également copié dans le champ TopoJSON
+  `id` pour un accès direct avec D3 ;
+- `legend`, avec ses carrés et les champs `variable` et `value`.
+
+La quantification par défaut est de 1 000 000 et aucune simplification n'est
+appliquée. La grille est exclue par défaut; elle peut devenir un troisième
+objet avec :
+
+```bash
+--include-grid
+```
+
+Le manifeste documente notamment le CRS source, les emprises de la carte et de
+la mise en page, le facteur surface/valeur, les noms de champs, les objets, la
+quantification, la transformation TopoJSON, les comptes de géométries
+invalides et l'empreinte SHA-256 du fichier. Il permet donc à un rendu de
+vérifier le fichier chargé et de distinguer :
+
+- `map_bbox`, l'emprise du cartogramme seul ;
+- `layout_bbox`, l'emprise commune du cartogramme et de la légende ;
+- les objets disponibles et leurs propriétés ;
+- le champ d'identification, la variable quantitative et le facteur
+  aire/unité.
+
+Le fichier GeoPackage et son rapport JSON restent les résultats canoniques du
+calcul. Le TopoJSON et son manifeste sont des dérivés reproductibles destinés
+au transport et au rendu : ils peuvent être régénérés sans relancer
+l'anamorphose.
+
+Exemple avec des chemins explicites :
+
+```bash
+python export_topojson.py result.gpkg \
+  --report result_report.json \
+  --output result.topojson \
+  --manifest result_manifest.json
+```
+
+Les coordonnées ne sont pas prétendues WGS84 : un futur rendu D3 devra les
+traiter comme un plan projeté, par exemple avec `d3.geoIdentity().reflectY(true)`.
+Pour cadrer uniquement la carte, utiliser `map_bbox`; pour conserver la place
+de la légende placée hors carte, utiliser `layout_bbox`. L'objet `legend` peut
+être chargé mais masqué sans modifier le cartogramme.
+
+### Grille visuelle et marge de calcul
+
+La marge de 1,5 autour des données est nécessaire aux conditions aux limites
+de la diffusion. La supprimer du calcul peut repousser ou écraser les
+territoires situés au bord. Elle n'a cependant pas besoin d'être affichée.
+
+Le mode par défaut exporte une grille légère sous forme de lignes :
+
+```python
 GRID_EXPORT_MODE = "lines"
 GRID_CROP_TO_INPUT = True
-~~~
+```
 
-They create a few hundred transformed lines rather than tens of thousands of
-cell polygons and omit the outer margin from the exported layer. The mesh
-shows how regular source space was transformed:
+La grille contient quelques centaines de lignes déformées, exclut la marge
+extérieure et montre comment l'espace régulier a été étiré ou contracté :
 
-- wider spacing after transformation indicates local expansion;
-- narrower spacing indicates local contraction;
-- curved or tilted lines indicate displacement direction.
+- lignes écartées après transformation : expansion locale ;
+- lignes rapprochées : contraction locale ;
+- lignes courbes/inclinées : direction du déplacement.
 
-With multiple cartogram iterations, every successive transformation is
-composed onto the original reference grid. The export therefore shows total
-deformation, not only the almost-regular correction from the final pass.
+Avec plusieurs itérations, chaque transformation est appliquée au maillage de
+référence initial. L'export montre donc la déformation totale, et non la seule
+correction de la dernière passe — qui serait normalement presque régulière.
 
-To inspect cell density:
+Pour analyser la densité de chaque cellule :
 
-~~~bash
+```bash
 --grid-export-mode cells
-~~~
+```
 
-Cells then contain cell_id, row, col, density, and iteration fields.
+Les cellules possèdent alors `cell_id`, `row`, `col`, `density` et
+`iteration`. Pour exporter aussi la marge complète :
 
-To include the complete computational margin:
-
-~~~bash
+```bash
 --full-grid-extent
-~~~
+```
 
-For the smallest output:
+Pour la sortie la plus légère possible :
 
-~~~bash
+```bash
 --grid-export-mode none
-~~~
+```
 
-## Accuracy and quality control
+### Contrôle de la proportionnalité des surfaces
 
-The cartogram layer contains these diagnostics for every geographic unit:
+La couche `cartogram` contient les indicateurs suivants pour chaque entité :
 
-| Field | Meaning |
+| Champ | Signification |
 |---|---|
-| cg_a_orig | Area before deformation |
-| cg_a_cart | Area obtained in the cartogram |
-| cg_a_targ | Theoretical target area |
-| cg_vshare | Share of the total variable or mass, from 0 to 1 |
-| cg_ashare | Share of final area, from 0 to 1 |
-| SizeError | ScapeToad-compatible indicator; ideal value is 100 |
-| cg_ratio | Obtained area divided by target area; ideal value is 1 |
-| cg_relerr | Signed area error in percent |
-| cg_abserr | Absolute value of the preceding error |
-| cg_status | on_target, too_small, too_large, or no_target |
-| cg_quality | excellent, good, acceptable, poor, or very_poor |
+| `cg_a_orig` | Surface avant déformation |
+| `cg_a_cart` | Surface obtenue dans le cartogramme |
+| `cg_a_targ` | Surface théorique cible |
+| `cg_vshare` | Part de la variable/masse totale, entre 0 et 1 |
+| `cg_ashare` | Part de la surface finale, entre 0 et 1 |
+| `SizeError` | Indicateur compatible avec ScapeToad, idéal = 100 |
+| `cg_ratio` | Surface obtenue / surface cible, idéal = 1 |
+| `cg_relerr` | Erreur de surface signée en pour cent |
+| `cg_abserr` | Valeur absolue de l'erreur précédente |
+| `cg_status` | `on_target`, `too_small`, `too_large` ou `no_target` |
+| `cg_quality` | Classe `excellent`, `good`, `acceptable`, `poor` ou `very_poor` |
 
-Areas are measured in the projected working CRS and remain expressed in its
-squared units even if geometries are converted back to EPSG:4326 for output.
+Les surfaces et les géométries de sortie restent dans le CRS projeté de
+travail. La couche `legend` emploie donc les mêmes unités carrées.
 
-The original ScapeToad formula simplifies to:
+La formule originale de ScapeToad se simplifie en :
 
-~~~text
-SizeError = 100 × variable_share / final_area_share
-~~~
+```text
+SizeError = 100 × (part de la variable / part de la surface finale)
+```
 
-Interpretation:
+Interprétation :
 
-- 100: area is exactly proportional to the variable;
-- 120: the territory is still too small relative to its target;
-- 80: the territory is too large relative to its target.
+- `100` : surface exactement proportionnelle à la variable ;
+- `120` : territoire encore trop petit par rapport à sa cible ;
+- `80` : territoire trop grand par rapport à sa cible.
 
-The signed relative error is often more intuitive:
+L'erreur signée complémentaire est plus intuitive :
 
-~~~text
-cg_relerr = 100 × (final_area - target_area) / target_area
-~~~
+```text
+cg_relerr = 100 × (surface finale - surface cible) / surface cible
+```
 
-A value of +20 means the final area is 20 percent too large, while -20 means
-it is 20 percent too small. A zero-target feature has no defined relative
-error and is excluded from aggregate relative-error statistics.
+Elle vaut donc `+20` pour une surface 20 % trop grande et `-20` pour une
+surface 20 % trop petite. Une entité dont la variable cible vaut zéro n'a pas
+d'erreur relative définie; ses champs `cg_relerr` et `cg_abserr` sont nuls ou
+non définis selon le format de sortie et elle est exclue des statistiques
+relatives globales.
 
-The cg_ratio field expresses the same relationship:
+`cg_ratio` donne la même information sous forme de rapport :
 
-- 1.00: target reached;
-- 1.20: final area is 20 percent too large;
-- 0.80: final area is 20 percent too small.
+- `1.00` : cible atteinte ;
+- `1.20` : surface 20 % trop grande ;
+- `0.80` : surface 20 % trop petite.
 
-Quality categories use absolute error:
+Les classes `cg_quality` utilisent l'erreur absolue :
 
-| Category | Difference from target |
+| Classe | Écart à la surface cible |
 |---|---:|
-| excellent | 5 percent or less |
-| good | over 5 and up to 10 percent |
-| acceptable | over 10 and up to 20 percent |
-| poor | over 20 and up to 50 percent |
-| very_poor | over 50 percent |
+| `excellent` | ≤ 5 % |
+| `good` | > 5 % et ≤ 10 % |
+| `acceptable` | > 10 % et ≤ 20 % |
+| `poor` | > 20 % et ≤ 50 % |
+| `very_poor` | > 50 % |
 
-The JSON report includes:
+Le rapport JSON fournit notamment :
 
-- mean, standard deviation, and quartiles of SizeError;
-- mean, median, and maximum absolute error;
-- percentages of units within 5, 10, and 20 percent of their targets;
-- Pearson correlation between the variable and cartogram area;
-- counts of evaluable and zero-target features;
-- working CRS and the main solver parameters.
+- moyenne, écart-type et quartiles du `SizeError` ;
+- erreur absolue moyenne, médiane et maximale ;
+- pourcentage d'entités à moins de 5 %, 10 % et 20 % de leur cible ;
+- corrélation de Pearson entre variable et surface ;
+- nombres d'entités évaluables ou de cible nulle ;
+- CRS de calcul et paramètres principaux.
 
-The terminal also prints mean SizeError and median absolute error when the
-calculation ends. Mean SizeError alone may conceal positive and negative
-errors; always inspect cg_abserr, the quartiles, and report thresholds as well.
+Exemple de contrôle rapide :
 
-### Visual inspection in QGIS
+```bash
+python pyscapetoad.py communes.gpkg::communes \
+  -a population --id-field commune_id \
+  -o resultat.gpkg --report-output controle.json
+```
 
-1. Open the cartogram layer.
-2. Apply categorized styling to cg_quality to locate poorly fitted units.
-3. Apply divergent graduated styling to cg_relerr, centred on zero, to
-   distinguish units that are too small from those that are too large.
-4. Display deformation_grid above the polygons using thin lines.
-5. Inspect cg_a_cart, cg_a_targ, and cg_ratio in feature tooltips.
+Le terminal affiche aussi le `SizeError` moyen et l'erreur absolue médiane à la
+fin du calcul. La moyenne de `SizeError` seule peut masquer des écarts positifs
+et négatifs : il est conseillé de regarder également `cg_abserr`, les quartiles
+et les seuils du rapport.
 
-The primary feature-level accuracy measure is cg_abserr. To compare two
-parameter sets, use median cg_abserr, the within_10_percent and
-within_20_percent report values, and then the area-variable correlation. A
-high correlation alone does not guarantee accurate small units.
+### Évaluer visuellement le résultat
 
-### What accuracy means here
+Dans QGIS ou un autre SIG :
 
-The target is independent of the final shape:
+1. ouvrir la couche `cartogram` ;
+2. appliquer un style catégorisé sur `cg_quality` pour repérer immédiatement
+   les unités mal ajustées ;
+3. appliquer un style gradué divergent sur `cg_relerr`, centré sur zéro, pour
+   distinguer les territoires trop petits des territoires trop grands ;
+4. afficher `deformation_grid` au-dessus, avec un trait fin sans remplissage ;
+5. inspecter `cg_a_cart`, `cg_a_targ` et `cg_ratio` dans l'infobulle d'une
+   unité problématique.
 
-~~~text
-target_area = (feature_value / sum_of_values) × total_final_area
-~~~
+La mesure principale d'exactitude par unité est `cg_abserr`. Pour comparer
+deux paramétrages, utiliser en priorité la médiane de `cg_abserr`, les parts
+`within_10_percent` et `within_20_percent` du rapport, puis la corrélation
+surface–variable. Une corrélation élevée ne garantit pas que chaque petite
+unité soit précise; elle doit toujours être lue avec les erreurs individuelles.
 
-The diagnostics compare measured final area in the projected working CRS with
-this target. They therefore measure the mathematical goal of a cartogram:
-making area proportional to the chosen variable.
+### Ce que signifie « exactitude » ici
 
-They do not validate:
+La cible d'une unité est calculée indépendamment de sa forme finale :
 
-- the quality or timeliness of the source variable;
-- the statistical relevance of the geographic partition;
-- visual recognizability of the final territories;
-- complete absence of local boundary distortion.
+```text
+surface_cible = (valeur_unité / somme_des_valeurs) × surface_totale_finale
+```
 
-The solver is a grid approximation. Small units, very low values, and extreme
-contrasts are the hardest cases. A finer grid and multiple passes usually
-reduce area error at the cost of runtime, memory, and vertex count.
+Les champs de contrôle comparent ensuite la surface réellement mesurée dans le
+CRS projeté à cette cible. Ils évaluent donc directement l'objectif
+mathématique du cartogramme : rendre les surfaces proportionnelles à la
+variable.
 
-### Demonstration benchmark
+Ces indicateurs ne valident pas :
 
-For eligible_voters with GRID_SIZE 256 and 3 iterations:
+- la qualité ou l'actualité de la variable source ;
+- la pertinence statistique du découpage géographique ;
+- la facilité de reconnaissance visuelle des territoires ;
+- l'absence de toute distorsion locale le long des frontières.
 
-- all 2,105 geometries are valid;
-- median absolute error is 12.70 percent;
-- 42.09 percent of units are within 10 percent of their target;
-- 64.70 percent are within 20 percent;
-- cartogram-area correlation with eligible_voters is 0.9989;
-- cg_quality contains 516 excellent, 370 good, 476 acceptable, 482 poor, and
-  261 very_poor units.
+Le solveur reste une approximation sur grille. Les petites unités, les valeurs
+très faibles et les contrastes extrêmes sont les plus difficiles. Une grille
+plus fine et plusieurs itérations réduisent généralement l'erreur, au prix de
+plus de calcul et de sommets.
 
-The cropped cumulative visual grid contains 282 lines, compared with 65,536
-polygons for the full cell grid. The lightweight GeoPackage is approximately
-5 MB.
+### Résultat de référence `voge_voters`
 
-## Coordinate reference systems
+Avec `GRID_SIZE = 256` et `CARTOGRAM_ITERATIONS = 3` :
 
-Diffusion uses Euclidean distances and areas, so it must run in a projected
-CRS. Any projected CRS recognized by PROJ and GeoPandas can be used, including:
+- 2 105 géométries sur 2 105 sont valides ;
+- erreur absolue médiane : 12,70 % ;
+- 42,09 % des unités sont à moins de 10 % de leur cible ;
+- 64,70 % sont à moins de 20 % ;
+- corrélation surface–`eligible_voters` : 0,9989 ;
+- `cg_quality` : 516 `excellent`, 370 `good`, 476 `acceptable`, 482 `poor`
+  et 261 `very_poor`.
 
-- EPSG:2056 for Switzerland;
-- an appropriate national projected CRS;
-- a suitable equal-area projection when area interpretation has priority.
+La grille visuelle cumulative recadrée contient 282 lignes, contre 65 536
+polygones pour la grille cellulaire complète. Le GeoPackage léger mesuré fait
+environ 5 Mo.
 
-EPSG:4326 is accepted for input and output because it is common for GeoJSON,
-but it is not used directly for diffusion: degrees are not distance or area
-units. For geographic input with an identified CRS, the program estimates a
-local UTM zone, performs the calculation there, and transforms results back to
-the original CRS.
+## Projections et CRS
 
-### Choosing GRID_SIZE for the study area
+La diffusion est un calcul euclidien : distances et surfaces doivent être
+mesurées dans un **CRS projeté**. Tous les CRS projetés reconnus par PROJ/
+GeoPandas sont utilisables, par exemple :
 
-GRID_SIZE controls matrix dimensions, not a universal map resolution. With
-the current command-line interface, N means an N by N raster and therefore
-exactly N squared cells:
+- `EPSG:2056` pour la Suisse ;
+- un CRS national équivalent ou conforme adapté au pays étudié ;
+- une projection égale-aire appropriée lorsque la conservation/interprétation
+  des surfaces est prioritaire.
 
-| GRID_SIZE | Raster dimensions | Computational cells |
-|---:|---:|---:|
-| 128 | 128 × 128 | 16,384 |
-| 256 | 256 × 256 | 65,536 |
-| 512 | 512 × 512 | 262,144 |
+`EPSG:4326` est accepté comme CRS d'entrée parce qu'il est très courant pour
+GeoJSON, mais il n'est pas utilisé directement pour la diffusion : les degrés
+ne sont pas des unités de distance ou de surface. Si l'entrée est géographique,
+le script estime automatiquement une zone UTM et conserve ce CRS projeté dans
+le GeoPackage canonique.
 
-Those counts are mathematical properties of the raster and do not depend on
-the country. Their geographic meaning does. The solver first builds a
-projected calculation extent around the selected bounding box, preserves the
-grid aspect ratio, and applies the configured margin. Approximate cell width
-and height are then:
+Pour les données couvrant plusieurs zones UTM, un pays entier très étendu ou le
+monde, fournir explicitement un CRS de travail adapté :
 
-~~~text
-cell_width  = padded_extent_width  / GRID_SIZE
-cell_height = padded_extent_height / GRID_SIZE
-~~~
-
-Consequently, a 256 grid covering all of France has much larger cells than a
-256 grid covering one Swiss canton. It may fail to represent small communes
-adequately even though the number of cells is identical. Conversely, a very
-small study area may not need 256 cells per axis.
-
-There is no universally correct value based only on the country name. Choose
-GRID_SIZE from:
-
-- the projected width and height of the selected extent;
-- the size of the smallest geographic units that matter;
-- the extent added by auxiliary layers;
-- the target area error in the JSON report;
-- available memory and acceptable runtime.
-
-A practical workflow is to start at 128, inspect small units and cg_abserr,
-then compare 256 and, if needed, 512. Retain the smallest grid for which the
-accuracy improvement is worth the additional cost. Comparing report metrics
-is more reliable than assuming that a value validated for Switzerland also
-fits France or another territory.
-
-For data spanning several UTM zones, a large country, or the world, explicitly
-provide an appropriate projected working CRS:
-
-~~~bash
+```bash
 python pyscapetoad.py world.gpkg::countries \
-  -a population \
-  -o world_cartogram.gpkg \
+  -a population -o world_cartogram.gpkg \
   --working-crs ESRI:54009
-~~~
+```
 
-Use --keep-working-crs to retain output in the calculation CRS. Otherwise the
-output CRS matches the first thematic input.
+## Méthode de calcul
 
-## Calculation method
+### Classes Java étudiées
 
-### Java classes studied
+Le portage a été isolé à partir de quatre classes de `ScapeToad/src/` :
 
-The port was isolated from four classes under ScapeToad/src:
+- `CartogramGrid.java` : grille, densités et emprise ;
+- `CartogramNewman.java` : DCT, solution spectrale de la diffusion, champ de
+  vitesse et Runge–Kutta ;
+- `CartogramGastner.java` : autre implémentation FFT, marge, biais de densité,
+  interpolation et projection ;
+- `CartogramFeature.java` : densification et projection des sommets.
 
-- CartogramGrid.java: grid, densities, and extent;
-- CartogramNewman.java: DCT, spectral diffusion, velocity field, and
-  Runge–Kutta integration;
-- CartogramGastner.java: the alternative historical FFT implementation,
-  margins, density bias, interpolation, and projection;
-- CartogramFeature.java: vertex densification and projection.
+Le code Swing/AWT, les assistants, JUMP/JTS et le parsing Java des Shapefiles
+n'ont pas été repris.
 
-Swing/AWT code, the application wizards, JUMP/JTS, and Java Shapefile parsing
-were intentionally excluded.
+### Méthodes disponibles
 
-### Available calculation methods
-
-| Method | Status |
+| Méthode | État dans ce projet |
 |---|---|
-| Newman DCT method from CartogramNewman | Active solver |
-| Historical mixed-FFT CartogramGastner implementation | Studied for extent, density bias, and interpolation; not exposed as a second solver |
-| Successive-pass refinement | Python extension available through --iterations |
-| ScapeToad constrained deformation | Not implemented |
+| Newman par DCT (`CartogramNewman`) | Solveur effectivement utilisé |
+| Gastner historique avec FFT mixtes (`CartogramGastner`) | Étudié pour l'emprise, le biais et l'interpolation; pas exposé comme second solveur |
+| Raffinement par passes successives | Extension Python via `--iterations` |
+| Déformation contrainte ScapeToad | Non implémentée |
 
-There is no --method selector in this version. The active calculation always
-uses the Newman/DCT solver, which is also the solver invoked by Cartogram.java
-in the examined ScapeToad source.
+Il n'y a donc pas de sélecteur `--method` dans cette version : le calcul actif
+est toujours le solveur Newman/DCT, qui est aussi celui appelé par
+`Cartogram.java` dans le ScapeToad fourni.
 
-### Density raster
+### Densité raster
 
-compute_density creates a NumPy matrix with shape ny by nx. For an extensive
-variable, every feature-cell intersection contributes:
+La fonction `compute_density` construit une matrice NumPy `(ny, nx)`. Pour une
+variable extensive, chaque intersection entité–cellule contribue :
 
-~~~text
-intersection_mass = feature_value × intersection_area / feature_area
-cell_density = cell_mass / cell_area
-~~~
+```text
+masse_intersection = valeur_entité × aire_intersection / aire_entité
+```
 
-Empty parts of the extent receive the weighted mean density. A small relative
-floor controlled by --density-floor prevents divisions by zero.
+Puis :
 
-Area-intersection rasterization is a deliberate improvement over the active
-CartogramGrid.fillDensityValueWithFeature Java path, which mainly assigns a
-cell from its centre point. The Python approach conserves mass more accurately
-but requires more expensive Shapely intersections.
+```text
+densité_cellule = masse_cellule / aire_cellule
+```
 
-### Gastner–Newman diffusion
+Les parties vides de l'emprise reçoivent la densité moyenne pondérée. Un petit
+plancher relatif (`--density-floor`) empêche les divisions par zéro.
 
-Initial density is transformed using a two-dimensional DCT:
+Cette rasterisation par aire est une amélioration volontaire par rapport au
+chemin actif de `CartogramGrid.fillDensityValueWithFeature`, qui affecte
+principalement une cellule selon son point central. Elle conserve mieux la
+masse, au prix d'intersections Shapely plus coûteuses.
 
-~~~python
+### Diffusion Gastner–Newman
+
+La densité initiale est transformée avec une DCT 2D :
+
+```python
 rho_hat = scipy.fft.dctn(rho, type=2, norm="ortho")
-~~~
+```
 
-The spectral heat-equation solution is:
+La solution spectrale de l'équation de la chaleur est :
 
-~~~text
+```text
 rho_hat(k, t) = exp(-(kx² + ky²)t) × rho_hat(k, 0)
-~~~
+```
 
-The DCT represents reflecting, zero-normal-flux boundaries as in
-CartogramNewman. Velocity uses the four-cell stencil inspired by Newman:
+La DCT représente des bords réfléchissants (flux normal nul), comme dans
+`CartogramNewman`. Le champ de vitesse est calculé avec le stencil de quatre
+cellules inspiré de Newman :
 
-~~~text
+```text
 v = -grad(rho) / rho
-~~~
+```
 
-Grid nodes are advected with fourth-order Runge–Kutta integration. Error is
-estimated by comparing one full step with two half steps. Steps can be
-rejected or enlarged adaptively, with a maximum growth factor of four. A
-higher-order correction follows the Java implementation.
+Les nœuds de grille sont transportés par Runge–Kutta d'ordre 4. L'erreur est
+estimée en comparant un grand pas à deux demi-pas; le pas est rejeté ou augmenté
+de façon adaptative, avec un facteur maximal de 4. Une correction d'ordre
+supérieur est appliquée comme dans le Java.
 
-Finally, Shapely segments are densified and their vertices are displaced by
-bilinear interpolation of the deformed mesh.
+Enfin, les segments Shapely sont densifiés puis leurs sommets sont déplacés par
+interpolation bilinéaire du maillage déformé.
 
-### Direct translation versus adaptation
+### Ce qui est retranscrit et ce qui est adapté
 
-This is not a line-for-line translation:
+Ce n'est pas une traduction ligne à ligne :
 
-- JTransforms DoubleDCT_2D is replaced with scipy.fft using orthonormal
-  normalization. Absolute normalization differs but cancels in
-  -grad(rho)/rho;
-- Java arrays and loops are vectorized with NumPy where useful;
-- the integrator follows Newman's adaptive RK4 principle but uses explicit
-  --convergence and --max-steps limits instead of waiting for exactly zero
-  floating-point displacement;
-- optional blur is applied as an initial spectral time of blur squared over 2;
-- constrained-deformation layers and GUI legends are not implemented;
-- the exported grid composes every pass onto the regular grid from the first
-  iteration. In cells mode, density therefore refers to that initial reference
-  grid.
+- `DoubleDCT_2D` de JTransforms est remplacé par `scipy.fft` avec normalisation
+  orthonormale. La normalisation absolue diffère, mais elle s'annule dans
+  `-grad(rho)/rho` ;
+- les tableaux et boucles Java sont vectorisés avec NumPy lorsque cela améliore
+  nettement les performances ;
+- l'intégrateur reprend le principe RK4 adaptatif de Newman, mais avec une
+  condition d'arrêt explicite (`--convergence`) et `--max-steps`, plutôt que
+  d'attendre un déplacement flottant exactement nul ;
+- le flou optionnel est appliqué comme un temps initial spectral
+  (`t = blur²/2`) ;
+- les couches de déformation contrainte, couches esclaves séparées et légendes
+  de l'interface ScapeToad ne sont pas implémentées ;
+- la grille exportée compose toutes les passes sur le maillage régulier de la
+  première itération; en mode `cells`, le champ `density` correspond donc à la
+  densité de cette grille de référence initiale.
 
-### Cartogram iterations
+### Itérations de cartogramme
 
---iterations N repeats the complete pipeline:
+`--iterations N` répète le pipeline complet :
 
-1. recompute value divided by current area;
-2. rasterize density;
-3. run diffusion;
-4. transform the geometry produced by the preceding pass.
+1. recalcul de `valeur / aire courante` ;
+2. rasterisation ;
+3. diffusion ;
+4. déformation de la géométrie obtenue à la passe précédente.
 
-One pass is often enough. Additional passes reduce errors caused by raster
-resolution and interpolation, but increase runtime and vertex counts. Two or
-three passes are reasonable starting points; many passes can amplify numerical
-artifacts.
+Une passe est généralement suffisante. Des passes supplémentaires corrigent
+les écarts dus à la résolution du raster et à l'interpolation, mais augmentent
+le temps de calcul et le nombre de sommets. Des valeurs de 2 ou 3 sont un point
+de départ raisonnable; davantage peut amplifier les artefacts numériques.
 
-In the examined ScapeToad source, CartogramNewman.compute is called once. An
-older mDiffusionIterations field exists in Cartogram.java but is commented
-out. The external iterations in this Python program are therefore an explicit
-extension, not a translation of an active Java loop.
+Dans le ScapeToad fourni, `CartogramNewman.compute()` est appelé une fois. Un
+ancien champ `mDiffusionIterations` existe dans `Cartogram.java`, mais il est
+commenté. Les itérations externes de ce script sont donc une extension
+explicite, pas la copie d'une boucle Java active.
 
-Do not confuse:
+Ne pas confondre :
 
-- --iterations: complete cartogram passes;
-- --max-steps: internal accepted time-step limit for one diffusion pass.
+- `--iterations` : passes complètes du cartogramme ;
+- `--max-steps` : limite interne des pas temporels adaptatifs d'une diffusion.
 
-## Complete CLI examples
+## Exemples CLI complets
 
-Eligible voters, 256-cell grid, and three passes:
+Électeurs éligibles, grille 256 et trois passes :
 
-~~~bash
+```bash
 python pyscapetoad.py \
   data/voge_voters.gpkg::voge_voters \
   --id-field vogeId \
@@ -770,16 +823,14 @@ python pyscapetoad.py \
   --iterations 3 \
   --grid-export-mode lines \
   --verbose
-~~~
+```
 
-Yes votes with lakes transformed at the same time and included in the
-diffusion extent:
+Nombre de votes « oui » et lacs simultanément déformés :
 
-~~~bash
+```bash
 python pyscapetoad.py \
   data/voge_voters.gpkg::voge_voters \
   --aux-layer data/lakes.gpkg::lakes \
-  --include-auxiliary-extent \
   --id-field vogeId \
   --attribute yes_votes \
   --working-crs EPSG:2056 \
@@ -787,11 +838,11 @@ python pyscapetoad.py \
   --iterations 3 \
   --grid-export-mode lines \
   --verbose
-~~~
+```
 
-Exploratory run treating yes_percent as a spatial density:
+Test exploratoire où `yes_percent` est traité comme une densité surfacique :
 
-~~~bash
+```bash
 python pyscapetoad.py \
   data/voge_voters.gpkg::voge_voters \
   --aux-layer data/lakes.gpkg::lakes \
@@ -803,62 +854,67 @@ python pyscapetoad.py \
   --iterations 3 \
   --grid-export-mode lines \
   --verbose
-~~~
+```
 
-This final example is computationally valid but usually not the recommended
-interpretation of a voting percentage. See Quantity versus density above.
+Pour 512×512 et six passes, remplacer simplement les deux paramètres :
 
-For a 512 by 512 grid and six passes:
-
-~~~bash
+```bash
 --grid-size 512 --iterations 6
-~~~
+```
 
-Without --output, every command uses the automatic filename convention.
+Sans `--output`, chaque commande utilise le nom automatique décrit plus haut.
 
-## Main command-line parameters
+## Paramètres principaux
 
-| Parameter | Purpose | Default |
+| Paramètre | Rôle | Défaut |
 |---|---|---:|
-| --id-field | Identifier field to validate and retain | native FID |
-| --aux-layer | Context layer to transform; repeatable | none |
-| --attribute, -a | Quantity or density used for the cartogram | required |
-| --output, -o | Explicit output path | automatic |
-| --attribute-is-density | Interpret values as density per unit area | false |
-| --grid-size, -n | Cells along each axis | 128 |
-| --iterations | Complete cartogram passes | 1 |
-| --report-output | Accuracy report path | <output>_report.json |
-| --grid-export-mode | lines, cells, or none | lines |
-| --full-grid-extent | Include the computational margin in the exported grid | false |
-| --include-auxiliary-extent | Extend diffusion bounds to auxiliary layers | false |
-| --working-crs | Projected calculation CRS | automatic |
-| --keep-working-crs | Keep output in the calculation CRS | false |
-| --margin | Computational extent around the data | 1.5 |
-| --density-floor | Relative density floor | 0.001 |
-| --blur | Initial spectral smoothing in cells | 0 |
-| --integration-tolerance | Adaptive RK tolerance | 0.01 |
-| --convergence | Maximum final displacement in cell units | 1e-5 |
-| --max-steps | Accepted time steps per pass | 500 |
-| --max-segment-length | Vertex densification in working-CRS units | half a cell |
-| --verbose | Show detailed progress information | false |
+| `--id-field` | Champ identifiant à vérifier et conserver | FID natif |
+| `--aux-layer` | Couche de contexte à déformer; option répétable | aucune |
+| `--attribute`, `-a` | Quantité/densité utilisée | obligatoire |
+| `--output`, `-o` | Chemin explicite, sinon nom automatique | automatique |
+| `--attribute-is-density` | Interprète le champ comme densité | faux |
+| `--grid-size`, `-n` | Cellules par axe | 128 |
+| `--iterations` | Passes complètes | 1 |
+| `--report-output` | Rapport JSON de contrôle | `<output>_report.json` |
+| `--no-legend` | Désactive la couche `legend` | faux |
+| `--legend-count` | Nombre automatique de carrés, de 1 à 3 | 3 |
+| `--legend-values` | Une à trois valeurs manuelles | automatique |
+| `--grid-export-mode` | `lines`, `cells` ou `none` | `lines` |
+| `--full-grid-extent` | Inclut la marge de calcul exportée | faux |
+| `--include-auxiliary-extent` | Étend la bbox de diffusion aux couches auxiliaires | faux |
+| `--working-crs` | Projection plane de calcul | automatique |
+| `--margin` | Emprise de calcul autour des données | 1.5 |
+| `--density-floor` | Plancher relatif de densité | 0.001 |
+| `--blur` | Lissage spectral initial, en cellules | 0 |
+| `--integration-tolerance` | Tolérance du RK adaptatif | 0.01 |
+| `--convergence` | Déplacement final maximal, en cellule | 1e-5 |
+| `--max-steps` | Pas temporels acceptés par passe | 500 |
+| `--max-segment-length` | Densification, unités du CRS de calcul | 1/2 cellule |
 
-Display every available option with:
+Tous les paramètres sont visibles avec :
 
-~~~bash
+```bash
 python pyscapetoad.py --help
-~~~
+```
 
-## Practical trade-offs
+## Compromis pratiques
 
-- A finer grid better represents small features, but memory use grows with the
-  square of grid size and raster intersections take longer.
-- Multiple passes and fine densification improve boundary continuity but
-  generate more vertices.
-- Area-intersection rasterization conserves mass better than centre-point
-  rasterization but is slower.
-- Extreme value disparities can create highly stretched cells. Density
-  flooring and blur reduce that risk at the cost of a less extreme result.
-- Area quality depends on the working CRS. Automatically selected UTM is
-  suitable for local extents, not global analysis.
-- Including distant auxiliary features in the extent ensures they are
-  transformed but reduces effective grid resolution over the thematic layer.
+- Une grille plus fine décrit mieux les petites entités, mais son coût mémoire
+  croît comme `n²` et les intersections de rasterisation prennent plus de
+  temps.
+- Plusieurs itérations et une densification fine améliorent la continuité des
+  limites, mais produisent davantage de sommets.
+- Les intersections surfaciques favorisent la conservation de la masse, mais
+  sont plus lentes qu'une rasterisation au centre des cellules.
+- Les fortes disparités de valeurs peuvent créer des cellules très étirées. Le
+  plancher de densité et le lissage réduisent ce risque, au prix d'un résultat
+  un peu moins extrême.
+- La qualité surfacique dépend du CRS de travail. L'UTM automatique est adapté
+  à une emprise locale, pas à une analyse mondiale.
+
+## Licence des données de démonstration
+
+Les deux GeoPackages du dossier `data/` sont fournis comme données sources de
+démonstration. Leur inclusion dans un dépôt public ne transfère ni ne modifie
+les droits attachés aux données d'origine. Avant réutilisation ou
+redistribution, vérifier les conditions de leurs producteurs respectifs.
